@@ -1,0 +1,20 @@
+# Secrets — never commit real env files (templates are allowed)
+.env
+.env.*
+!.env.*.example
+
+# Rollback bookkeeping written by deploy-staging.sh
+.image_tag.prev
+
+# Backups / dumps
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.tar.gz
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.log
