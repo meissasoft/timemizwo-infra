@@ -51,6 +51,16 @@ with 2 replicas, cross-node broadcasts drop. **Dev session must add the Redis
 adapter** (Redis-backed `IoAdapter` using `REDIS_URL`) before we run 2 replicas.
 Infra is already built for it.
 
+## Build fixes applied (both repos, committed on main)
+- Both `lets-track-api` and `lets-track-client` ship a `pnpm-workspace.yaml` that
+  holds only an `allowBuilds` placeholder (no `packages:` field). pnpm 9 aborts
+  `pnpm build` with "packages field missing or empty". Fix: `pnpm --ignore-workspace
+  run build` in each Dockerfile. (api: commit 8bca8ea; client: 85c3d76)
+- `lets-track-client/next.config.ts` now has `output: 'standalone'` (commit
+  4bb32fd) — required by the standalone Dockerfile.
+- Repos are on Bitbucket, workspace `ubaidmanzoor987` (not meissasoft). Build is
+  on the server; images tag as `letstrack/api|client|db-migrate:<tag>`.
+
 ## Decisions
 - HTTPS: certbot on the host proxy (existing Apache/Nginx).
 - Realtime: 2 replicas + Redis adapter (pending dev change).
