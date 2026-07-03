@@ -1,0 +1,33 @@
+# Public S3 endpoint for screenshots: s3.timenova.meissasoft.com -> MinIO.
+#
+# Add to the SERVER's existing Apache. Needed because screenshot uploads
+# (agent) and downloads (browser) use presigned MinIO URLs that must be
+# publicly reachable — the internal http://minio:9000 is not.
+#
+# ProxyPreserveHost On is REQUIRED: MinIO validates the AWS SigV4 signature
+# against the Host header, and the presigned URL was signed with the host
+# s3.timenova.meissasoft.com. If Apache rewrites Host, MinIO returns 403
+# SignatureDoesNotMatch.
+#
+#   sudo cp s3-apache-vhost.conf.example /etc/apache2/sites-available/s3-timenova.conf
+#   sudo a2ensite s3-timenova
+#   sudo apache2ctl configtest && sudo systemctl reload apache2
+#   sudo certbot --apache -d s3.timenova.meissasoft.com
+#
+# Requires: DNS A record s3.timenova.meissasoft.com -> server IP, and MinIO's
+# S3 API published on 127.0.0.1:9002 (docker-compose.yml).
+
+<VirtualHost *:80>
+    ServerName s3.timenova.meissasoft.com
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    ProxyPass        / http://127.0.0.1:9002/
+    ProxyPassReverse / http://127.0.0.1:9002/
+
+    # Screenshot uploads (presigned PUT) — allow a generous body size.
+    LimitRequestBody 33554432    # 32 MB
+
+    ProxyTimeout 120
+</VirtualHost>
