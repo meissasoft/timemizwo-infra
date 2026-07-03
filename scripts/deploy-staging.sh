@@ -25,6 +25,15 @@ cd "$STAGING_DIR"
 ENV_FILE=".env.staging"
 [ -f "$ENV_FILE" ] || { echo "ERROR: $STAGING_DIR/$ENV_FILE not found"; exit 1; }
 
+# Serialize deploys: a concurrent CI trigger (multiple repos merged at once, or a
+# retry) or a manual run waits here, so two `docker compose up` passes never
+# collide with "container name already in use". Lock auto-releases on exit.
+exec 9>"${TMPDIR:-/tmp}/letstrack-staging-deploy.lock"
+if ! flock -w 900 9; then
+  echo "Another deploy is in progress (waited 15m) — aborting."
+  exit 1
+fi
+
 dc() { docker compose --env-file "$ENV_FILE" "$@"; }
 getenv() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 
