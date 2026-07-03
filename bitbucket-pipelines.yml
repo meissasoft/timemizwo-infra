@@ -29,4 +29,4 @@ pipelines:
             - >
               ssh -i ~/.ssh/id_ed25519 -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new
               "$DEPLOY_USER@$DEPLOY_HOST"
-              "$DEPLOY_PATH/lets-track-infra/scripts/ci-deploy.sh $TAG"
+              "bash $DEPLOY_PATH/lets-track-infra/scripts/ci-deploy.sh $TAG"
