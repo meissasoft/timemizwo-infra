@@ -26,8 +26,9 @@
     ProxyPass        / http://127.0.0.1:9002/
     ProxyPassReverse / http://127.0.0.1:9002/
 
-    # Screenshot uploads (presigned PUT) — allow a generous body size.
-    LimitRequestBody 33554432    # 32 MB
+    # Screenshot uploads (presigned PUT) — allow a generous body size (32 MB).
+    # NOTE: Apache directives take no inline comments — keep the number alone.
+    LimitRequestBody 33554432
 
     ProxyTimeout 120
 </VirtualHost>
