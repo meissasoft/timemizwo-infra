@@ -1,0 +1,31 @@
+# Auto-deploy to the staging server on merge to main.
+#
+# Runs on Bitbucket CLOUD runners, which SSH into the timenova server and run
+# the health-gated rolling deploy there (build-on-server; no registry, and NO
+# self-hosted runner on the server).
+#
+# Required workspace variables (Repository/Workspace settings → Variables):
+#   DEPLOY_HOST     e.g. timenova.meissasoft.com   (SSH reachable, port 22)
+#   DEPLOY_USER     e.g. meissasoft
+#   DEPLOY_PATH     absolute dir holding the 4 repos, e.g. /home/meissasoft/timenova-track
+#   DEPLOY_SSH_KEY  base64 of the deploy PRIVATE key  (mark as SECURED)
+
+image: atlassian/default-image:4
+
+clone:
+  enabled: false          # deploy runs over SSH on the server; no checkout needed
+
+pipelines:
+  branches:
+    main:
+      - step:
+          name: Deploy to staging
+          deployment: staging
+          script:
+            - mkdir -p ~/.ssh
+            - echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+            - TAG="ci-$(echo "$BITBUCKET_COMMIT" | cut -c1-7)"
+            - >
+              ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+              "$DEPLOY_USER@$DEPLOY_HOST"
+              "$DEPLOY_PATH/lets-track-infra/scripts/ci-deploy.sh $TAG"
