@@ -18,8 +18,8 @@
 #   DEPLOY_HOST / DEPLOY_PORT / DEPLOY_USER / DEPLOY_PATH
 set -euo pipefail
 
-DEPLOY_HOST="${DEPLOY_HOST:-timenova.meissasoft.com}"
-DEPLOY_PORT="${DEPLOY_PORT:-2222}"
+DEPLOY_HOST="${DEPLOY_HOST:-221.120.236.55}"
+DEPLOY_PORT="${DEPLOY_PORT:-8822}"
 DEPLOY_USER="${DEPLOY_USER:-meissasoft}"
 DEPLOY_PATH="${DEPLOY_PATH:-/home/meissasoft/timenova-track}"
 TAG="${1:-manual-$(date +%Y%m%d-%H%M%S)}"
