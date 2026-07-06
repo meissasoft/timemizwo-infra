@@ -158,7 +158,10 @@ services:
     networks:
       - letstrack
 
-  # ── One-shot: create the screenshots bucket, then exit ─────────────────────
+  # ── One-shot: create buckets + policies, then exit ─────────────────────────
+  # Creates the private screenshots bucket, and a downloads bucket whose
+  # `agent/` prefix is anonymously readable (public GET) so the desktop agent
+  # app can pull installers / auto-update files over plain HTTPS without keys.
   minio-setup:
     image: minio/mc:latest
     depends_on:
@@ -171,11 +174,15 @@ services:
           echo 'waiting for minio...'; sleep 2;
         done;
         mc mb --ignore-existing local/"$$S3_BUCKET";
-        echo "bucket $$S3_BUCKET ready";
+        echo "bucket $$S3_BUCKET ready (private)";
+        mc mb --ignore-existing local/"$$DOWNLOADS_BUCKET";
+        mc anonymous set download local/"$$DOWNLOADS_BUCKET"/agent;
+        echo "bucket $$DOWNLOADS_BUCKET ready (agent/ prefix = public-read)";
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET}
+      DOWNLOADS_BUCKET: ${DOWNLOADS_BUCKET:-letstrack-downloads}
     restart: "no"
     networks:
       - letstrack
