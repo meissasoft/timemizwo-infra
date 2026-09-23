@@ -1,0 +1,42 @@
+# Add this to the SERVER's EXISTING Apache (NOT our compose nginx).
+# It terminates TLS for timemizwo.com and forwards to our stack on
+# 127.0.0.1:9003.
+#
+# Enable the required modules first (if not already on from the staging setup):
+#   sudo a2enmod proxy proxy_http proxy_wstunnel headers rewrite ssl
+#   sudo cp apache-vhost.conf.example /etc/apache2/sites-available/timemizwo.conf
+#   sudo a2ensite timemizwo
+#   sudo apache2ctl configtest && sudo systemctl reload apache2
+#   sudo certbot --apache -d timemizwo.com -d www.timemizwo.com
+#
+# IMPORTANT: certbot --apache creates a separate timemizwo-le-ssl.conf for :443.
+# Verify that file contains the SAME RewriteRule + ProxyPass block below (recent
+# certbot copies them; if not, paste them into the <VirtualHost *:443> block).
+#
+# Prereq: DNS A records for timemizwo.com and www.timemizwo.com -> this
+# server's IP, already propagated before running certbot.
+
+<VirtualHost *:80>
+    ServerName timemizwo.com
+    ServerAlias www.timemizwo.com
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    # WebSocket upgrade for Socket.IO (/socket.io/). MUST precede the catch-all
+    # ProxyPass so upgrade requests are tunneled, not proxied as plain HTTP.
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule ^/?(.*) ws://127.0.0.1:9003/$1 [P,L]
+
+    ProxyPass        / http://127.0.0.1:9003/
+    ProxyPassReverse / http://127.0.0.1:9003/
+
+    # Tell the app the original scheme (becomes https on the :443 vhost).
+    RequestHeader set X-Forwarded-Proto "http"
+
+    # Screenshot uploads — 20 MB.
+    LimitRequestBody 20971520
+
+    ProxyTimeout 300
+</VirtualHost>

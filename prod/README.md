@@ -1,7 +1,33 @@
-# Production (AWS) — placeholder
+# Production — timemizwo.com
 
-Staging (`../staging`) is the current focus. Production on AWS will be codified
-with Terraform here later. Target shape (subject to change):
+**Current reality (2026-09-23):** production runs the SAME build-on-server
+docker-compose pattern as `../staging`, on the SAME office server
+(221.120.236.55), side by side with staging. This was a deliberate
+short-term call (fast, zero extra hosting cost) — see the "hosting decision"
+discussion in project notes. Ports 9003 (nginx) / 9004 (minio) are reserved
+for this stack; staging owns 9001/9002. Production uses its OWN checkout of
+the four repos on the server (`~/timenova-track-prod/`, separate from
+staging's `~/timenova-track/`) so a staging auto-deploy can never race a
+manual prod deploy over the same git working tree — see
+`../scripts/manual-deploy-prod.sh` for the one-time setup.
+
+Known constraint worth watching: the server hosts 100+ unrelated containers
+across many other client projects on only 4 CPU cores. Fine to start, but
+migrate off (see the AWS target below) once real customer traffic/reliability
+requirements justify it.
+
+DB backups go off-site to AWS S3 via `rclone` (`../scripts/backup-prod.sh`).
+Screenshots stay on local MinIO for now (not mirrored to S3) — revisit if
+loss-of-screenshots-on-disk-failure becomes an acceptable risk to close.
+
+---
+
+# Production (AWS) — future target, not yet built
+
+Once traffic/revenue justifies the cost (~$200-300/mo, see cost estimate in
+project notes) and the reliability of a shared personal server is no longer
+acceptable, migrate here. Will be codified with Terraform. Target shape
+(subject to change):
 
 - **Compute**: ECS Fargate (or EKS) — api service (≥2 tasks), worker service, client service.
 - **Ingress**: ALB → api/client target groups; sticky sessions on the socket.io
