@@ -30,3 +30,15 @@ pipelines:
               ssh -i ~/.ssh/id_ed25519 -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new
               "$DEPLOY_USER@$DEPLOY_HOST"
               "bash $DEPLOY_PATH/lets-track-infra/scripts/ci-deploy.sh $TAG"
+    production:
+      - step:
+          name: Deploy to production
+          deployment: production
+          script:
+            - mkdir -p ~/.ssh
+            - echo "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+            - TAG="ci-$(echo "$BITBUCKET_COMMIT" | cut -c1-7)"
+            - >
+              ssh -i ~/.ssh/id_ed25519 -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new
+              "$DEPLOY_USER@$DEPLOY_HOST"
+              "bash /home/meissasoft/timenova-track-prod/lets-track-infra/scripts/ci-deploy-prod.sh $TAG"
