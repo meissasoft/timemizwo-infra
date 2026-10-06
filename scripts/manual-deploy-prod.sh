@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # One-shot MANUAL deploy — run from YOUR machine (git-bash) to deploy the
-# current `main` of all four repos to PRODUCTION.
+# current `production` branch of all four repos to PRODUCTION.
 #
-# It SSHes into the server and runs ci-deploy-prod.sh (sync all repos ->
-# build -> migrate -> health-gated rolling deploy).
+# It SSHes into the server and runs ci-deploy-prod.sh (sync all repos to
+# origin/production -> build -> migrate -> health-gated rolling deploy). Note:
+# this deploys `production`, NOT `main` — merge main into production first if
+# you want this to pick up your latest main commits.
 #
 # IMPORTANT: production uses its OWN checkout of the four repos, separate from
 # staging's (~/timenova-track). This is deliberate — staging auto-deploys on
@@ -22,7 +24,8 @@
 #   nano lets-track-infra/prod/.env.production   # fill every REQUIRED value
 #
 # Prereq for every deploy after that:
-#   - Your changes are pushed to Bitbucket `main` (the server pulls origin/main).
+#   - Your changes are pushed to Bitbucket `production` (the server pulls
+#     origin/production, in each of the 4 repos).
 #   - You can SSH to the server (the normal access you already use).
 #
 # Usage (from the lets-track-infra folder, on your machine):
@@ -40,7 +43,7 @@ DEPLOY_PATH="${DEPLOY_PATH:-/home/meissasoft/timenova-track-prod}"
 TAG="${1:-manual-$(date +%Y%m%d-%H%M%S)}"
 
 echo "==> Deploying tag '$TAG' to PRODUCTION ($DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PORT)"
-echo "    (make sure your changes are pushed to Bitbucket main first)"
+echo "    (make sure your changes are pushed to Bitbucket 'production' branch first)"
 ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
   "bash '$DEPLOY_PATH/lets-track-infra/scripts/ci-deploy-prod.sh' '$TAG'"
 echo "==> Done."

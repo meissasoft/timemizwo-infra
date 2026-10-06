@@ -1,22 +1,35 @@
 #!/usr/bin/env bash
 # Rolling, (near) zero-downtime PRODUCTION deploy — BUILDS images on the server.
 #
-#   ./deploy-prod.sh [IMAGE_TAG] [--no-build]
+#   ./deploy-prod.sh [--sync] [IMAGE_TAG] [--no-build]
+#
+# --sync: fetch+reset all 4 repos to origin/production BEFORE building — done
+# here (inside the lock), not in ci-deploy-prod.sh, so a concurrent trigger
+# can never git-reset a checkout that another run's `docker build` is mid-read
+# of (this raced during the first live prod deploy: two pipeline-triggered
+# runs + a manual run all shared one unlocked sync step and corrupted a build).
 #
 # With a tag arg: records the current tag to .image_tag.prev (for rollback),
 # updates IMAGE_TAG in .env.production, then deploys. Without: uses the tag in
 # .env.production. --no-build skips building (used by rollback, which re-uses
 # the already-built images for the older tag).
 #
-# Flow: build (unless --no-build) -> backing services -> expand-phase migrations
-# (additive) -> replace api-a, wait healthy -> replace api-b, wait healthy ->
-# replace worker (drains) -> client, nginx. The second API replica keeps serving
-# while the first is swapped.
+# Flow: [sync] -> build (unless --no-build) -> backing services -> expand-phase
+# migrations (additive) -> replace api-a, wait healthy -> replace api-b, wait
+# healthy -> replace worker (drains) -> client, nginx. The second API replica
+# keeps serving while the first is swapped.
 #
 # Requires the source repos beside infra on the server:
-#   ~/timenova-track/{lets-track-api,lets-track-client,lets-track-db,lets-track-infra}
+#   ~/timenova-track-prod/{lets-track-api,lets-track-client,lets-track-db,lets-track-infra}
 # Run from lets-track-infra/prod (scripts cd there automatically).
 set -euo pipefail
+
+# Everything lives inside main(), called as the LAST line of this file. bash
+# parses a function body fully into memory when it's defined, so --sync
+# resetting lets-track-infra (which contains this very script) mid-run can't
+# corrupt the already-running execution — a bare top-level script reading
+# itself off disk line-by-line would be vulnerable to exactly that race.
+main() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROD_DIR="$SCRIPT_DIR/../prod"
@@ -27,7 +40,8 @@ ENV_FILE=".env.production"
 
 # Serialize deploys: a concurrent trigger or a retry waits here, so two
 # `docker compose up` passes never collide with "container name already in
-# use". Separate lock file from staging's — the two stacks deploy independently.
+# use", and (with --sync) so two runs never git-reset the same checkout mid-
+# build. Separate lock file from staging's — the two stacks deploy independently.
 exec 9>"${TMPDIR:-/tmp}/letstrack-prod-deploy.lock"
 if ! flock -w 900 9; then
   echo "Another prod deploy is in progress (waited 15m) — aborting."
@@ -37,14 +51,24 @@ fi
 dc() { docker compose --env-file "$ENV_FILE" "$@"; }
 getenv() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 
-TAG=""; BUILD=1
+TAG=""; BUILD=1; SYNC=0
 for a in "$@"; do
   case "$a" in
     --no-build) BUILD=0 ;;
+    --sync) SYNC=1 ;;
     -*) echo "Unknown flag: $a"; exit 1 ;;
     *)  TAG="$a" ;;
   esac
 done
+
+if [ "$SYNC" = "1" ]; then
+  BASE="$(cd "$PROD_DIR/../.." && pwd)"   # parent dir holding all four prod-checkout repos
+  for r in lets-track-api lets-track-client lets-track-db lets-track-infra; do
+    echo "== sync $r (origin/production) =="
+    git -C "$BASE/$r" fetch --quiet origin production
+    git -C "$BASE/$r" reset --quiet --hard origin/production
+  done
+fi
 
 if [ -n "$TAG" ]; then
   CUR="$(getenv IMAGE_TAG || true)"
@@ -117,3 +141,7 @@ docker image prune -f >/dev/null 2>&1 || true
 echo
 echo "Deploy complete. Current state:"
 dc ps
+
+}
+
+main "$@"
