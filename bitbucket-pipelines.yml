@@ -1,4 +1,5 @@
-# Auto-deploy to the staging server on merge to main.
+# Auto-deploy to the staging server on merge to `staging`.
+# Branch model: dev (no auto-deploy) -> staging -> production.
 #
 # Runs on Bitbucket CLOUD runners, which SSH into the timenova server and run
 # the health-gated rolling deploy there (build-on-server; no registry, and NO
@@ -18,7 +19,7 @@ clone:
 
 pipelines:
   branches:
-    main:
+    staging:
       - step:
           name: Deploy to staging
           deployment: staging

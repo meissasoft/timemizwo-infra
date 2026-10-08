@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Invoked over SSH by Bitbucket Cloud Pipelines on merge to main.
-# Syncs all four repos to origin/main, then runs the health-gated rolling deploy.
+# Invoked over SSH by Bitbucket Cloud Pipelines on merge to `staging`.
+# Syncs all four repos to origin/staging, then runs the health-gated rolling deploy.
+# (Branch model: dev -> staging -> production. `staging` is the old `main`,
+# renamed so the branch name matches what it actually triggers.)
 #
 #   ci-deploy.sh <image-tag>
 #
@@ -18,8 +20,8 @@ BASE="$(cd "$SCRIPT_DIR/../.." && pwd)"          # parent dir holding all four r
 
 for r in lets-track-api lets-track-client lets-track-db lets-track-infra; do
   echo "== sync $r =="
-  git -C "$BASE/$r" fetch --quiet origin main
-  git -C "$BASE/$r" reset --hard origin/main
+  git -C "$BASE/$r" fetch --quiet origin staging
+  git -C "$BASE/$r" reset --hard origin/staging
 done
 
 cd "$BASE/lets-track-infra/staging"

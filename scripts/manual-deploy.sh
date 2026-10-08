@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # One-shot MANUAL deploy — run from YOUR machine (git-bash) to deploy the current
-# `main` of all four repos to staging, WITHOUT using Bitbucket pipeline minutes.
+# `staging` branch of all four repos to staging, WITHOUT using Bitbucket pipeline
+# minutes. (Branch model: dev -> staging -> production. `staging` is the old
+# `main`, renamed so the branch name matches what it actually triggers.)
 #
 # It just SSHes into the server and runs ci-deploy.sh (sync all repos → build →
 # migrate → health-gated rolling deploy). Same result as the CI pipeline, but
 # triggered by hand.
 #
 # Prereq:
-#   - Your changes are pushed to Bitbucket `main` (the server pulls origin/main).
+#   - Your changes are pushed to Bitbucket `staging` (the server pulls origin/staging).
 #   - You can SSH to the server (the normal access you already use).
 #
 # Usage (from the lets-track-infra folder):
@@ -25,7 +27,7 @@ DEPLOY_PATH="${DEPLOY_PATH:-/home/meissasoft/timenova-track}"
 TAG="${1:-manual-$(date +%Y%m%d-%H%M%S)}"
 
 echo "==> Deploying tag '$TAG' to $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PORT"
-echo "    (make sure your changes are pushed to Bitbucket main first)"
+echo "    (make sure your changes are pushed to Bitbucket 'staging' branch first)"
 ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
   "bash '$DEPLOY_PATH/lets-track-infra/scripts/ci-deploy.sh' '$TAG'"
 echo "==> Done."
