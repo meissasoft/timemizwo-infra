@@ -16,7 +16,11 @@ $ErrorActionPreference = 'Stop'
 
 function New-Password { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ }) }
 function Get-SecretValue($ns, $name, $key) {
-  $b64 = kubectl -n $ns get secret $name -o jsonpath="{.data.$key}" 2>$null
+  # "not found" is normal on the first run; PS 5.1 + Stop would turn kubectl's
+  # stderr into a terminating error, so look it up via the list instead.
+  $exists = kubectl -n $ns get secret --field-selector "metadata.name=$name" -o name
+  if (-not $exists) { return $null }
+  $b64 = kubectl -n $ns get secret $name -o jsonpath="{.data.$key}"
   if ($b64) { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64)) }
 }
 function Apply-Secret($ns, $name, [hashtable] $data) {
