@@ -1,0 +1,38 @@
+# Template, NOT applied directly (not in kustomization.yaml). The deploy
+# workflow fills JOB_NAME / IMAGE_TAG with sed, applies it and waits for
+# success before rolling the api - same order as the old deploy-prod.sh.
+# node-pg-migrate is idempotent (public.pgmigrations), so re-running it with
+# nothing pending is a no-op. Migrations are additive-only; never run down.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: JOB_NAME
+  namespace: timemizwo-prod
+  labels:
+    app: timemizwo-migrate
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: timemizwo-migrate
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
+      containers:
+        - name: migrate
+          image: ghcr.io/ubaid-meissasoft/timemizwo-db-migrate:IMAGE_TAG
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-runtime
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi"

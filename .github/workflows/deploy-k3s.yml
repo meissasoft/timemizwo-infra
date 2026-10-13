@@ -1,0 +1,106 @@
+name: Deploy to K3s
+
+# This repo is owner-only and is the ONLY place that holds cluster credentials
+# (TS_AUTHKEY, KUBECONFIG_PROD_B64). The api/client/db repos - which other
+# developers can push to - build their image, push it to GHCR, then call this
+# workflow through the workflow_dispatch API with DEPLOY_DISPATCH_PAT.
+#
+# That PAT is fine-grained with ONLY "Actions: read and write" on this one
+# repo. Actions-write can start/cancel runs but cannot push code or change
+# this file, and no token can ever read secret values. (Contents-write - what
+# a repository_dispatch trigger would need - would let a leaked token push a
+# workflow that prints the secrets. Don't widen the PAT.)
+#
+# Inputs are validated below before use; never interpolate them into shell
+# directly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: What was rebuilt
+        required: true
+        type: choice
+        options: [api, client, db]
+      sha:
+        description: Image tag (short git SHA) to deploy
+        required: true
+        type: string
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [production]
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      COMPONENT: ${{ inputs.component }}
+      SHA: ${{ inputs.sha }}
+      REGISTRY: ghcr.io/ubaid-meissasoft
+      NS: timemizwo-prod
+    steps:
+      - name: Validate inputs
+        run: |
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{7,40}$'; then
+            echo "Invalid sha: must be a hex git SHA"; exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          tags: tag:ci
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Write kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG_PROD_B64 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig.yaml"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig.yaml" >> "$GITHUB_ENV"
+
+      # api and db deploys run migrations first (db: the new image; api: the
+      # newest migrations already released). The client never needs them.
+      - name: Run migrations
+        if: env.COMPONENT != 'client'
+        run: |
+          if [ "$COMPONENT" = "db" ]; then TAG="$SHA"; else TAG="production"; fi
+          JOB="timemizwo-migrate-${GITHUB_RUN_ID}"
+          sed -e "s/JOB_NAME/$JOB/" -e "s/IMAGE_TAG/$TAG/" k3s/prod/migrate-job.yaml | kubectl apply -f -
+          for i in $(seq 1 60); do
+            ok=$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.succeeded}')
+            bad=$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.failed}')
+            [ "$ok" = "1" ] && break
+            if [ -n "$bad" ] && [ "$bad" != "0" ]; then break; fi
+            sleep 5
+          done
+          kubectl -n "$NS" logs "job/$JOB" --tail=200 || true
+          [ "$ok" = "1" ] || { echo "Migration job did not succeed"; exit 1; }
+
+      - name: Roll out api
+        if: env.COMPONENT == 'api'
+        run: |
+          kubectl -n "$NS" set image deployment/timemizwo-api api="$REGISTRY/timemizwo-api:$SHA"
+          kubectl -n "$NS" rollout status deployment/timemizwo-api --timeout=300s
+
+      - name: Roll out client
+        if: env.COMPONENT == 'client'
+        run: |
+          kubectl -n "$NS" set image deployment/timemizwo-client client="$REGISTRY/timemizwo-client:$SHA"
+          kubectl -n "$NS" rollout status deployment/timemizwo-client --timeout=300s
+
+      - name: Summary
+        run: |
+          echo "## Deployed \`$COMPONENT\` \`$SHA\` to \`$NS\`" >> "$GITHUB_STEP_SUMMARY"

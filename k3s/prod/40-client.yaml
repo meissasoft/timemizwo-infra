@@ -1,0 +1,81 @@
+# Next.js client (standalone server). Stateless. NEXT_PUBLIC_* values are
+# baked in at BUILD time by the client repo's workflow (production branch ->
+# https://timemizwo.com), so this image is environment-specific: staging needs
+# its own build, not just different env here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timemizwo-client
+  namespace: timemizwo-prod
+  labels:
+    app: timemizwo-client
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: timemizwo-client
+  template:
+    metadata:
+      labels:
+        app: timemizwo-client
+    spec:
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["on-prem"]
+      containers:
+        - name: client
+          image: ghcr.io/ubaid-meissasoft/timemizwo-client:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timemizwo-client
+  namespace: timemizwo-prod
+spec:
+  selector:
+    app: timemizwo-client
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

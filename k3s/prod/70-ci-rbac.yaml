@@ -1,0 +1,50 @@
+# Identity for the deploy workflow in THIS repo (owner-only). Namespace-scoped:
+# it can roll the two Deployments and run the migration Job, nothing else -
+# no Secrets, no other namespaces.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: timemizwo-ci
+  namespace: timemizwo-prod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: timemizwo-ci-deployer
+  namespace: timemizwo-prod
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: timemizwo-ci-deployer
+  namespace: timemizwo-prod
+subjects:
+  - kind: ServiceAccount
+    name: timemizwo-ci
+    namespace: timemizwo-prod
+roleRef:
+  kind: Role
+  name: timemizwo-ci-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: timemizwo-ci-token
+  namespace: timemizwo-prod
+  annotations:
+    kubernetes.io/service-account.name: timemizwo-ci
+type: kubernetes.io/service-account-token

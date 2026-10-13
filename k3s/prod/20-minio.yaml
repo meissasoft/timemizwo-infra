@@ -1,0 +1,132 @@
+# MinIO (S3) for screenshots + the desktop agent's installers/auto-update feed.
+# Pinned to meissasoft-server: it has the disk (~800 GB free) that screenshots
+# will need; db-cloud only has ~48 GB shared with every app's database.
+#
+# Public as s3.timemizwo.com (Caddy -> Traefik -> here). Presigned URLs are
+# SigV4-signed over the Host header, so every hop must keep Host unchanged.
+#
+# Image pinned by digest to exactly what the old server ran
+# (RELEASE.2025-09-07T16-13-09Z) - MinIO stopped publishing versioned tags.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timemizwo-minio
+  namespace: timemizwo-prod
+spec:
+  serviceName: timemizwo-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timemizwo-minio
+  template:
+    metadata:
+      labels:
+        app: timemizwo-minio
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["meissasoft-server"]
+      containers:
+        - name: minio
+          image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-password
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              memory: "1Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timemizwo-minio
+  namespace: timemizwo-prod
+spec:
+  selector:
+    app: timemizwo-minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+---
+# One-shot, idempotent: buckets + the public-read policy on downloads/agent/
+# (installed agents fetch updates from there anonymously). Same as the old
+# compose `minio-setup` service. Re-run: delete the Job and apply again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: timemizwo-minio-setup
+  namespace: timemizwo-prod
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mc alias set local http://timemizwo-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              mc mb --ignore-existing local/letstrack-screenshots
+              mc mb --ignore-existing local/timemizwo-downloads
+              mc anonymous set download local/timemizwo-downloads/agent
+              mc ls local
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-password

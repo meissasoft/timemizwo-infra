@@ -1,0 +1,70 @@
+# Nightly pg_dump of the timemizwo database (shared CNPG) -> gzip -> AWS S3.
+# The shared Postgres has no CNPG backups configured, and the old server's
+# backup-prod.sh never actually ran (rclone was never installed), so this is
+# the only off-site copy. Connects over TCP with the app's own DATABASE_URL.
+# Retention is handled by an S3 lifecycle rule on the bucket, not here.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: timemizwo-pg-backup
+  namespace: timemizwo-prod
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  apk add --no-cache aws-cli >/dev/null
+                  stamp=$(date +%F-%H%M%S)
+                  dump="/tmp/timemizwo-prod-${stamp}.sql.gz"
+                  pg_dump "$DATABASE_URL" --no-owner --no-acl | gzip -9 > "$dump"
+                  gzip -t "$dump"
+                  aws s3 cp "$dump" "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/$(basename "$dump")"
+                  echo "uploaded $(du -h "$dump" | cut -f1) -> s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/"
+                  rm -f "$dump"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: timemizwo-runtime
+                      key: DATABASE_URL
+                - name: BACKUP_PREFIX
+                  value: "timemizwo-prod"
+                - name: BACKUP_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: timemizwo-backup-s3
+                      key: bucket
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: timemizwo-backup-s3
+                      key: aws-access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: timemizwo-backup-s3
+                      key: aws-secret-access-key
+                - name: AWS_DEFAULT_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: timemizwo-backup-s3
+                      key: region
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  memory: "384Mi"
