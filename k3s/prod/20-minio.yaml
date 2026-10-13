@@ -5,8 +5,9 @@
 # Public as s3.timemizwo.com (Caddy -> Traefik -> here). Presigned URLs are
 # SigV4-signed over the Host header, so every hop must keep Host unchanged.
 #
-# Image pinned by digest to exactly what the old server ran
-# (RELEASE.2025-09-07T16-13-09Z) - MinIO stopped publishing versioned tags.
+# Images are copies (docker save from the old server) of exactly what it ran,
+# RELEASE.2025-09-07T16-13-09Z, mirrored to our GHCR: MinIO no longer
+# publishes images on Docker Hub. Pinned by digest.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -23,6 +24,8 @@ spec:
       labels:
         app: timemizwo-minio
     spec:
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -33,7 +36,7 @@ spec:
                     values: ["meissasoft-server"]
       containers:
         - name: minio
-          image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          image: ghcr.io/ubaid-meissasoft/timemizwo-minio:RELEASE.2025-09-07T16-13-09Z@sha256:a16cad481969d7ddb6fcd2f1c58284af3d1266190b9bedc3ef0801aeb05a93a9
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -107,9 +110,11 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
       containers:
         - name: mc
-          image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: ghcr.io/ubaid-meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
           command:
             - /bin/sh
             - -ec
