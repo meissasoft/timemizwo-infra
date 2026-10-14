@@ -37,7 +37,7 @@ spec:
                     values: ["on-prem"]
       containers:
         - name: client
-          image: ghcr.io/ubaid-meissasoft/timemizwo-client:REPLACE_WITH_IMAGE_TAG
+          image: ghcr.io/meissasoft/timemizwo-client:REPLACE_WITH_IMAGE_TAG
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV

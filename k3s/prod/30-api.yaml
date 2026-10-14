@@ -44,7 +44,7 @@ spec:
                     values: ["on-prem"]
       containers:
         - name: api
-          image: ghcr.io/ubaid-meissasoft/timemizwo-api:REPLACE_WITH_IMAGE_TAG
+          image: ghcr.io/meissasoft/timemizwo-api:REPLACE_WITH_IMAGE_TAG
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:
