@@ -1,0 +1,59 @@
+# Staging copy of k3s/prod/50-ingress.yaml. Caddy on the master terminates
+# TLS and forwards to Traefik with the original Host header.
+#   /socket.io/  -> api  (WebSocket; Traefik upgrades natively)
+#   /api/        -> api  (incl. the Stripe webhook - Traefik passes the body
+#                         through untouched, so the raw-body signature works)
+#   /            -> client
+# No sticky sessions: one api pod. If api is scaled out, Socket.IO long-polling
+# needs stickiness - add a Traefik sticky cookie on the api Service then.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: timemizwo-web
+  namespace: timemizwo-staging
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: staging.timemizwo.com
+      http:
+        paths:
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-api
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-api
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-client
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: timemizwo-s3
+  namespace: timemizwo-staging
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: s3.staging.timemizwo.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-minio
+                port:
+                  number: 9000

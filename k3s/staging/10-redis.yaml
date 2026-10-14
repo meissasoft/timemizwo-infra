@@ -1,0 +1,76 @@
+# Per-app Redis on the always-on db-cloud node. BullMQ queues + the Socket.IO
+# redis-adapter live here, so it must never evict keys (noeviction): a full
+# Redis should fail loudly, not silently drop jobs.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timemizwo-redis
+  namespace: timemizwo-staging
+spec:
+  serviceName: timemizwo-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timemizwo-redis
+  template:
+    metadata:
+      labels:
+        app: timemizwo-redis
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["db-cloud"]
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - exec redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-redis-secret
+                  key: redis-password
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              memory: "320Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timemizwo-redis
+  namespace: timemizwo-staging
+spec:
+  selector:
+    app: timemizwo-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
