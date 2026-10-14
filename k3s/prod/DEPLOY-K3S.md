@@ -24,23 +24,23 @@ DNS), so OAuth redirect URIs, Stripe webhook and installed agents keep working.
 
 ```
 api/client/db repo, push to `production`
-  -> build image -> ghcr.io/ubaid-meissasoft/timemizwo-{api,client,db-migrate}:<sha>
-  -> workflow_dispatch -> lets-track-infra `deploy-k3s.yml` (owner-only)
+  -> build image -> ghcr.io/meissasoft/timemizwo-{api,client,db-migrate}:<sha>
+  -> workflow_dispatch -> timemizwo-infra `deploy-k3s.yml` (owner-only)
        -> db/api: run migrate Job, wait for success
        -> api/client: kubectl set image + rollout status
 ```
 
 Secrets:
-- **lets-track-infra** (owner only): `TS_AUTHKEY`, `KUBECONFIG_PROD_B64`.
+- **timemizwo-infra** (owner only): `TS_AUTHKEY`, `KUBECONFIG_PROD_B64`.
 - **api, client, db**: `DEPLOY_DISPATCH_PAT` only. A fine-grained PAT, resource
-  owner `ubaid-meissasoft`, repository `lets-track-infra` only, permission
+  owner `meissasoft` (org), repository `timemizwo-infra` only, permission
   **Actions: Read and write** and nothing else. Don't use a Contents-write
   token here: Contents-write can push a workflow that prints the infra secrets.
 
 ## 1. Postgres (shared CNPG)
 
 ```powershell
-# from the lets-track-infra repo root (main branch)
+# from the timemizwo-infra repo root (main branch)
 scp -P 8822 meissasoft@221.120.236.55:timenova-track-prod/lets-track-infra/prod/.env.production $env:TEMP\tmz.env
 powershell -ExecutionPolicy Bypass -File k3s\prod\make-secrets.ps1 -EnvFile $env:TEMP\tmz.env
 Remove-Item $env:TEMP\tmz.env
@@ -108,8 +108,8 @@ CI must have pushed images first (section 5), then:
 
 ```powershell
 kubectl apply -k k3s\prod
-kubectl -n timemizwo-prod set image deployment/timemizwo-api api=ghcr.io/ubaid-meissasoft/timemizwo-api:<sha>
-kubectl -n timemizwo-prod set image deployment/timemizwo-client client=ghcr.io/ubaid-meissasoft/timemizwo-client:<sha>
+kubectl -n timemizwo-prod set image deployment/timemizwo-api api=ghcr.io/meissasoft/timemizwo-api:<sha>
+kubectl -n timemizwo-prod set image deployment/timemizwo-client client=ghcr.io/meissasoft/timemizwo-client:<sha>
 ```
 
 Test through Traefik from the master before touching DNS:

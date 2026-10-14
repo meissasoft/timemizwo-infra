@@ -45,7 +45,7 @@ jobs:
     env:
       COMPONENT: ${{ inputs.component }}
       SHA: ${{ inputs.sha }}
-      REGISTRY: ghcr.io/ubaid-meissasoft
+      REGISTRY: ghcr.io/meissasoft
       NS: timemizwo-prod
     steps:
       - name: Validate inputs

@@ -30,7 +30,7 @@ spec:
         - name: timemizwo-ghcr-pull
       containers:
         - name: mc
-          image: ghcr.io/ubaid-meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
+          image: ghcr.io/meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
           command:
             - /bin/sh
             - -ec

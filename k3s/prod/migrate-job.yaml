@@ -23,7 +23,7 @@ spec:
         - name: timemizwo-ghcr-pull
       containers:
         - name: migrate
-          image: ghcr.io/ubaid-meissasoft/timemizwo-db-migrate:IMAGE_TAG
+          image: ghcr.io/meissasoft/timemizwo-db-migrate:IMAGE_TAG
           env:
             - name: DATABASE_URL
               valueFrom:

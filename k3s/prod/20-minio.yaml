@@ -36,7 +36,7 @@ spec:
                     values: ["meissasoft-server"]
       containers:
         - name: minio
-          image: ghcr.io/ubaid-meissasoft/timemizwo-minio:RELEASE.2025-09-07T16-13-09Z@sha256:a16cad481969d7ddb6fcd2f1c58284af3d1266190b9bedc3ef0801aeb05a93a9
+          image: ghcr.io/meissasoft/timemizwo-minio:RELEASE.2025-09-07T16-13-09Z@sha256:a16cad481969d7ddb6fcd2f1c58284af3d1266190b9bedc3ef0801aeb05a93a9
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -114,7 +114,7 @@ spec:
         - name: timemizwo-ghcr-pull
       containers:
         - name: mc
-          image: ghcr.io/ubaid-meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
+          image: ghcr.io/meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
           command:
             - /bin/sh
             - -ec
