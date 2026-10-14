@@ -20,6 +20,27 @@ Finova. Staging comes later as `k3s/staging/` (own namespace, own DB
 Hostnames stay the same (`timemizwo.com`, `www`, `s3.timemizwo.com`, GoDaddy
 DNS), so OAuth redirect URIs, Stripe webhook and installed agents keep working.
 
+**Status:** live since 2026-10-13. The old compose stack and its data are
+deleted, so sections 3 and 6 below (data copy, cutover) are history - the
+`mc mirror` job they mention is gone.
+
+## MinIO credentials (since 2026-10-14)
+
+| Who | Secret | Can do |
+|---|---|---|
+| root | `timemizwo-minio-secret` | everything - only for admin Jobs, never handed out |
+| api | `timemizwo-minio-users` `app-*` -> copied into `timemizwo-runtime` `S3_ACCESS_KEY`/`S3_SECRET_KEY` | get/put/delete in `timemizwo-screenshots` only (policy `timemizwo-app`) |
+| agent release | `timemizwo-minio-users` `publisher-*` -> the agent repo's local `.env.prod` | get/put/delete + bucket policy in `timemizwo-downloads` only (policy `timemizwo-publisher`) |
+
+Buckets: `timemizwo-screenshots` (private), `timemizwo-downloads` (`agent/`
+anonymous read - installed agents update from it). The root was rotated after
+the original keys leaked; IAM users survive a root change, so rotating again =
+patch `timemizwo-minio-secret` + `kubectl rollout restart statefulset/timemizwo-minio`.
+
+`make-secrets.ps1` is first-time bootstrap only and refuses to run once
+`timemizwo-runtime` exists (it would restore the old server's values). Live
+Stripe keys: `D:\LetsTrackApp\set-stripe-keys.ps1`.
+
 ## CI/CD
 
 ```
