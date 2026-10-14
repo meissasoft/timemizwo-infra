@@ -44,6 +44,15 @@ foreach ($required in 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'JWT_SECRET', 'INTEGRATI
   if (-not $envs[$required]) { throw "$required missing in $EnvFile" }
 }
 
+# One-time bootstrap only. Since the move, timemizwo-runtime also holds the live
+# Stripe keys and the scoped MinIO app user, and the MinIO root was rotated -
+# re-running this would put the old server's values back. Change individual
+# keys with `kubectl patch secret` (or set-stripe-keys.ps1) instead.
+if (kubectl -n timemizwo-prod get secret --field-selector metadata.name=timemizwo-runtime -o name 2>$null) {
+  Write-Host 'timemizwo-runtime already exists - refusing to overwrite it. See the comment above.' -ForegroundColor Red
+  exit 1
+}
+
 kubectl apply -f "$PSScriptRoot\00-namespace.yaml"
 
 # --- Postgres role password (reuse if it already exists) --------------------
