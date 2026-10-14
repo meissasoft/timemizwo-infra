@@ -1,0 +1,166 @@
+# Staging MinIO: screenshots + the staging agent's installers/auto-update feed.
+# Same image and layout as prod (see k3s/prod/20-minio.yaml), smaller disk.
+# Public as s3.staging.timemizwo.com (Caddy -> Traefik -> here).
+#
+# Its own root, NOT the old compose staging MinIO's root: that one also owns
+# the unrelated `fcproj` bucket, which stays on the old server.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timemizwo-minio
+  namespace: timemizwo-staging
+spec:
+  serviceName: timemizwo-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timemizwo-minio
+  template:
+    metadata:
+      labels:
+        app: timemizwo-minio
+    spec:
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["meissasoft-server"]
+      containers:
+        - name: minio
+          image: ghcr.io/meissasoft/timemizwo-minio:RELEASE.2025-09-07T16-13-09Z@sha256:a16cad481969d7ddb6fcd2f1c58284af3d1266190b9bedc3ef0801aeb05a93a9
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-password
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "192Mi"
+            limits:
+              memory: "768Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 30Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timemizwo-minio
+  namespace: timemizwo-staging
+spec:
+  selector:
+    app: timemizwo-minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+---
+# One-shot, idempotent: buckets, the public-read policy on downloads/agent/,
+# and the two scoped users (same policies as prod):
+#   app-*       -> timemizwo-screenshots only (the api's S3 key)
+#   publisher-* -> timemizwo-downloads only (staging agent releases)
+# Keys come from timemizwo-minio-users (make-secrets.ps1 generates them).
+# Re-run: delete the Job and apply again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: timemizwo-minio-setup
+  namespace: timemizwo-staging
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
+      containers:
+        - name: mc
+          image: ghcr.io/meissasoft/timemizwo-mc@sha256:8609a720aa0f94251ef926fa82a0173daf7085c66b65445c2dd7ef23252408f2
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mc alias set local http://timemizwo-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+              mc mb --ignore-existing local/timemizwo-screenshots
+              mc mb --ignore-existing local/timemizwo-downloads
+              mc anonymous set download local/timemizwo-downloads/agent
+              printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:DeleteObject","s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::timemizwo-screenshots/*"]},{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::timemizwo-screenshots"]}]}' > /tmp/app.json
+              printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:DeleteObject","s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::timemizwo-downloads/*"]},{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:GetBucketPolicy","s3:ListBucket","s3:PutBucketPolicy"],"Resource":["arn:aws:s3:::timemizwo-downloads"]}]}' > /tmp/publisher.json
+              mc admin policy create local timemizwo-app /tmp/app.json
+              mc admin policy create local timemizwo-publisher /tmp/publisher.json
+              # output suppressed: these commands echo the access key
+              mc admin user add local "$APP_ACCESS_KEY" "$APP_SECRET_KEY" >/dev/null
+              mc admin user add local "$PUBLISHER_ACCESS_KEY" "$PUBLISHER_SECRET_KEY" >/dev/null
+              mc admin policy attach local timemizwo-app --user "$APP_ACCESS_KEY" >/dev/null 2>&1 || true
+              mc admin policy attach local timemizwo-publisher --user "$PUBLISHER_ACCESS_KEY" >/dev/null 2>&1 || true
+              mc ls local
+              echo "users: $(mc admin user list local | wc -l)"
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-secret
+                  key: root-password
+            - name: APP_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-users
+                  key: app-access-key
+            - name: APP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-users
+                  key: app-secret-key
+            - name: PUBLISHER_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-users
+                  key: publisher-access-key
+            - name: PUBLISHER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-minio-users
+                  key: publisher-secret-key

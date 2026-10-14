@@ -1,0 +1,102 @@
+# Staging copy of k3s/prod/30-api.yaml (smaller requests).
+# NestJS API. One pod does everything the old api-a/api-b/worker trio did:
+# REST, Socket.IO (/socket.io/, namespace /ws) and the BullMQ processors - the
+# code never had a worker-only mode. Scale with `kubectl scale --replicas=N`;
+# the Socket.IO redis-adapter and upsertJobScheduler already make N>1 safe.
+#
+# RollingUpdate with maxUnavailable 0: the new pod must be Ready before the
+# old one stops, so deploys have no downtime.
+#
+# Probe note: /api/health returns 200 even when DB/Redis are down (body says
+# "degraded"), so these probes only prove the process is serving HTTP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timemizwo-api
+  namespace: timemizwo-staging
+  labels:
+    app: timemizwo-api
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: timemizwo-api
+  template:
+    metadata:
+      labels:
+        app: timemizwo-api
+    spec:
+      imagePullSecrets:
+        - name: timemizwo-ghcr-pull
+      terminationGracePeriodSeconds: 45 # lets in-flight BullMQ jobs drain
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["on-prem"]
+      containers:
+        - name: api
+          image: ghcr.io/meissasoft/timemizwo-api:REPLACE_WITH_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: timemizwo-runtime
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: API_PREFIX
+              value: api
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: timemizwo-redis-secret
+                  key: redis-url
+          ports:
+            - containerPort: 3000
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timemizwo-api
+  namespace: timemizwo-staging
+spec:
+  selector:
+    app: timemizwo-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

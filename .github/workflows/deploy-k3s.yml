@@ -30,7 +30,7 @@ on:
         description: Target environment
         required: true
         type: choice
-        options: [production]
+        options: [production, staging]
 
 concurrency:
   group: deploy-${{ inputs.environment }}
@@ -45,14 +45,23 @@ jobs:
     env:
       COMPONENT: ${{ inputs.component }}
       SHA: ${{ inputs.sha }}
+      ENVIRONMENT: ${{ inputs.environment }}
       REGISTRY: ghcr.io/meissasoft
-      NS: timemizwo-prod
     steps:
+      # production -> namespace timemizwo-prod, manifests k3s/prod
+      # staging    -> namespace timemizwo-staging, manifests k3s/staging
+      # The client image is environment-specific (NEXT_PUBLIC_* baked in), so
+      # the staging build is tagged staging-<sha>; api/db images are shared.
       - name: Validate inputs
         run: |
           if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{7,40}$'; then
             echo "Invalid sha: must be a hex git SHA"; exit 1
           fi
+          case "$ENVIRONMENT" in
+            production) echo "NS=timemizwo-prod" >> "$GITHUB_ENV"; echo "DIR=k3s/prod" >> "$GITHUB_ENV"; echo "CLIENT_TAG=$SHA" >> "$GITHUB_ENV" ;;
+            staging) echo "NS=timemizwo-staging" >> "$GITHUB_ENV"; echo "DIR=k3s/staging" >> "$GITHUB_ENV"; echo "CLIENT_TAG=staging-$SHA" >> "$GITHUB_ENV" ;;
+            *) echo "Unknown environment"; exit 1 ;;
+          esac
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,13 +81,14 @@ jobs:
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig.yaml" >> "$GITHUB_ENV"
 
       # api and db deploys run migrations first (db: the new image; api: the
-      # newest migrations already released). The client never needs them.
+      # newest migrations already released to that environment, i.e. the
+      # db-migrate :production / :staging tag). The client never needs them.
       - name: Run migrations
         if: env.COMPONENT != 'client'
         run: |
-          if [ "$COMPONENT" = "db" ]; then TAG="$SHA"; else TAG="production"; fi
+          if [ "$COMPONENT" = "db" ]; then TAG="$SHA"; else TAG="$ENVIRONMENT"; fi
           JOB="timemizwo-migrate-${GITHUB_RUN_ID}"
-          sed -e "s/JOB_NAME/$JOB/" -e "s/IMAGE_TAG/$TAG/" k3s/prod/migrate-job.yaml | kubectl apply -f -
+          sed -e "s/JOB_NAME/$JOB/" -e "s/IMAGE_TAG/$TAG/" "$DIR/migrate-job.yaml" | kubectl apply -f -
           for i in $(seq 1 60); do
             ok=$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.succeeded}')
             bad=$(kubectl -n "$NS" get job "$JOB" -o jsonpath='{.status.failed}')
@@ -98,7 +108,7 @@ jobs:
       - name: Roll out client
         if: env.COMPONENT == 'client'
         run: |
-          kubectl -n "$NS" set image deployment/timemizwo-client client="$REGISTRY/timemizwo-client:$SHA"
+          kubectl -n "$NS" set image deployment/timemizwo-client client="$REGISTRY/timemizwo-client:$CLIENT_TAG"
           kubectl -n "$NS" rollout status deployment/timemizwo-client --timeout=300s
 
       - name: Summary
