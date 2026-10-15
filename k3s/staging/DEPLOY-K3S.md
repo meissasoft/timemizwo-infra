@@ -13,7 +13,7 @@ stack on the office server (`221.120.236.55`, `~/timenova-track`).
 | hosts | `staging.timemizwo.com`, `s3.staging.timemizwo.com` (Caddy on the master) |
 
 **Status:** live since 2026-10-15. The old compose staging containers and
-their volumes are removed (final dump: `D:\LetsTrackAppackups	imemizwo-staging-final-2026-10-15.sql.gz`),
+their volumes are removed (final dump: `D:etstrackappbackups	imemizwo-staging-final-2026-10-15.sql.gz`),
 so sections 3 and 5 below are history and `mirror-job.yaml` is gone.
 
 **The old staging MinIO container must keep running**: it also holds the
