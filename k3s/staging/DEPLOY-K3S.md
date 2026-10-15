@@ -12,6 +12,10 @@ stack on the office server (`221.120.236.55`, `~/timenova-track`).
 | backup | CronJob `timemizwo-pg-backup` 02:30 -> `s3://timemizwo-backups/timemizwo-staging/` |
 | hosts | `staging.timemizwo.com`, `s3.staging.timemizwo.com` (Caddy on the master) |
 
+**Status:** live since 2026-10-15. The old compose staging containers and
+their volumes are removed (final dump: `D:/LetsTrackApp/backups/timemizwo-staging-final-2026-10-15.sql.gz`),
+so sections 3 and 5 below are history and `mirror-job.yaml` is gone.
+
 **The old staging MinIO container must keep running**: it also holds the
 unrelated `fcproj` bucket (served as `s3.timenova.meissasoft.com`). Only the
 old api/worker/client/postgres/redis/nginx containers go away.
