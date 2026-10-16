@@ -15,7 +15,7 @@ spec:
   ingressClassName: traefik
   rules:
     - host: staging.timemizwo.com
-      http:
+      http: &web
         paths:
           - path: /socket.io
             pathType: Prefix
@@ -38,6 +38,11 @@ spec:
                 name: timemizwo-client
                 port:
                   number: 80
+    # App host (login/dashboard). Same backends: /api and /socket.io must be
+    # served here too - the refresh cookie is host-only (SameSite=Strict). The
+    # client's middleware decides which pages belong to which host.
+    - host: staging.app.timemizwo.com
+      http: *web
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
