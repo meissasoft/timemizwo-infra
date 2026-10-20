@@ -40,6 +40,12 @@ spec:
                   number: 80
     - host: www.timemizwo.com
       http: *web
+    # App host (login/dashboard). Same backends: /api and /socket.io must be
+    # served here too - the refresh cookie is host-only (SameSite=Strict). The
+    # client's middleware decides which pages belong to which host.
+    # timemizwo.com/api stays for installed agents and the Stripe webhook.
+    - host: app.timemizwo.com
+      http: *web
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
