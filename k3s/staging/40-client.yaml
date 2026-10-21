@@ -26,6 +26,8 @@ spec:
     spec:
       imagePullSecrets:
         - name: timemizwo-ghcr-pull
+      # Prefer devserver, then the other on-prem node (meissasoft-server, which
+      # also runs ~100 docker containers and is often CPU-bound), then anywhere.
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -35,6 +37,12 @@ spec:
                   - key: topology.kubernetes.io/zone
                     operator: In
                     values: ["on-prem"]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["devserver"]
       containers:
         - name: client
           image: ghcr.io/meissasoft/timemizwo-client:REPLACE_WITH_IMAGE_TAG
