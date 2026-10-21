@@ -76,17 +76,22 @@ spec:
               path: /api/health
               port: 3000
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 36
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 10
+            # /api/health pings Postgres + Redis on db-cloud. At the 1 s default it timed
+            # out (p95 ~1 s), the pod left the Service and requests got 503.
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 30
+            timeoutSeconds: 5
             failureThreshold: 3
           resources:
             requests:
