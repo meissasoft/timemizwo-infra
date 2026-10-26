@@ -1,6 +1,7 @@
 # Replaces the old inner nginx. Caddy on the master terminates TLS and
 # forwards to Traefik with the original Host header.
 #   /socket.io/  -> api  (WebSocket; Traefik upgrades natively)
+#   /.well-known/oauth-* -> api (MCP OAuth discovery)
 #   /api/        -> api  (incl. the Stripe webhook - Traefik passes the body
 #                         through untouched, so the raw-body signature works)
 #   /            -> client
@@ -25,6 +26,22 @@ spec:
                 port:
                   number: 80
           - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-api
+                port:
+                  number: 80
+          # OAuth discovery for MCP clients (AI assistants) lives at the
+          # host root (RFC 8414 / 9728); the api serves it outside /api.
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: timemizwo-api
+                port:
+                  number: 80
+          - path: /.well-known/oauth-authorization-server
             pathType: Prefix
             backend:
               service:
