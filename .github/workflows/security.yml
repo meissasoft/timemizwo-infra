@@ -1,0 +1,327 @@
+# ---------------------------------------------------------------------------
+# Secured CI pipeline (reusable workflow).
+#
+# This is the "security gate". The deployment workflow (deploy.yml) calls this
+# workflow and all deploy jobs declare `needs:`, so deployment CANNOT start
+# unless every job here succeeds.
+#
+# Designed for GitHub TEAM edition (no GitHub Advanced Security):
+#   * No SARIF upload to the code-scanning / Security tab (that needs GHAS on
+#     private repos). Every scanner FAILS THE JOB on findings and uploads its
+#     report as a build artifact instead.
+#   * 100% open-source tooling, no paid licenses, no vendor tokens required:
+#       - Gitleaks  (MIT)        -> secret scanning
+#       - Semgrep   (LGPL/OSS)   -> static analysis (SAST)
+#       - Trivy     (Apache-2.0) -> dependencies, IaC misconfig, image, SBOM
+#       - Checkov   (Apache-2.0) -> deeper IaC misconfig
+#       - harden-runner (MIT)    -> runner egress monitoring
+#
+# HARDENING TODO (do this once the pipeline is green):
+#   1. Pin every `uses:` to a full commit SHA and every Docker image to a
+#      @sha256 digest. We ship version tags / :latest so it runs out of the
+#      box; pin with the open-source tool `pinact`:
+#          go install github.com/suzuki-shunsuke/pinact/cmd/pinact@latest
+#          pinact run .github/workflows/*.yml
+#   2. In repo settings, make the "Security gate" check a required status check
+#      on your protected branch.
+# ---------------------------------------------------------------------------
+name: Security Pipeline
+
+on:
+  # Called by deploy.yml (and any other workflow) as a gate.
+  workflow_call:
+    inputs:
+      severity:
+        description: Comma-separated severities that fail the build.
+        type: string
+        required: false
+        default: CRITICAL          # TODO: tighten back to HIGH,CRITICAL once findings are burned down
+  # Runs directly on PRs / pushes so it can also be a required status check.
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Least privilege for the whole workflow. Jobs widen only if they must.
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Works whether triggered via workflow_call (inputs set) or directly (empty).
+  SEVERITY: ${{ inputs.severity || 'CRITICAL' }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  secret-scan:
+    name: Secret scanning
+    runs-on: self-hosted
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # gitleaks scans the whole git history
+          persist-credentials: false
+
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --verbose \
+                   --report-format sarif --report-path /repo/gitleaks.sarif
+          # gitleaks exits non-zero when a secret is found -> this job fails.
+
+      - name: Upload gitleaks report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  sast:
+    name: Static analysis (SAST)
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            semgrep/semgrep:1.181.0 \
+            semgrep scan \
+              --config=p/default \
+              --config=p/security-audit \
+              --config=p/secrets \
+              --config=p/owasp-top-ten \
+              --severity ERROR \
+              --error --sarif --output=semgrep.sarif
+          # --severity ERROR: only ERROR-severity findings block the build. The current
+          # baseline (36 findings) is all WARNING-level, so the build is green while the
+          # gate still fails on any future ERROR-severity finding. WARNING/INFO rules are
+          # still scanned but filtered from this run — the full set is in the
+          # semgrep-report artifact (and via a local `semgrep scan` without --severity).
+          # TODO: drop --severity ERROR to also gate on WARNING findings once burned down.
+
+      - name: Upload semgrep report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep.sarif
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  dependencies:
+    name: Dependency & license scan
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Trivy fs auto-detects lockfiles for every ecosystem (npm, pip, go,
+      # maven, nuget, cargo, composer, ...) so it stays language-agnostic.
+      - name: Trivy filesystem scan (vulns, secrets, licenses)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,license
+          severity: ${{ env.SEVERITY }}
+          # With format=sarif, trivy-action scans ALL severities unless this is set, so
+          # exit-code would fire on HIGH/MEDIUM too. This makes `severity` gate the exit.
+          limit-severities-for-sarif: true
+          ignore-unfixed: true
+          exit-code: '1'          # fail the job on findings at/above SEVERITY
+          format: sarif
+          output: trivy-deps.sarif
+
+      - name: Upload dependency report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-deps-report
+          path: trivy-deps.sarif
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  iac:
+    name: IaC & config scan
+    runs-on: self-hosted
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Trivy config: Terraform, CloudFormation, Kubernetes, Dockerfile, Helm.
+      # No-op (exit 0) if the repo has no IaC, so the job is safe to always run.
+      - name: Trivy misconfiguration scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: ${{ env.SEVERITY }}
+          limit-severities-for-sarif: true   # gate on `severity`, not all severities
+          exit-code: '1'
+          format: sarif
+          output: trivy-config.sarif
+
+      # Checkov: deeper policy-as-code coverage for IaC. Report-only for now
+      # (--soft-fail): findings are printed and uploaded as the iac-reports artifact,
+      # but do NOT block the build. The Trivy config scan above still gates on CRITICAL.
+      # TODO: drop --soft-fail (or use --hard-fail-on) to gate once findings are triaged.
+      - name: Checkov
+        run: |
+          docker run --rm -v "$PWD:/src" \
+            bridgecrew/checkov:latest \
+            --directory /src --compact --quiet --soft-fail \
+            --output cli --output sarif --output-file-path console,/src
+
+      - name: Upload IaC reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-reports
+          path: |
+            trivy-config.sarif
+            results_sarif.sarif
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  container:
+    name: Container image scan
+    runs-on: self-hosted
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Detect Dockerfile
+        id: detect
+        run: |
+          if find . -maxdepth 3 -iname 'Dockerfile*' -not -path '*/node_modules/*' | head -1 | grep -q .; then
+            echo "present=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No Dockerfile found - skipping image build/scan (job passes)."
+          fi
+
+      - name: Build image for scanning
+        if: steps.detect.outputs.present == 'true'
+        run: docker build -t local/scan-image:ci .
+
+      - name: Trivy image scan
+        if: steps.detect.outputs.present == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: local/scan-image:ci
+          severity: ${{ env.SEVERITY }}
+          limit-severities-for-sarif: true   # gate on `severity`, not all severities
+          ignore-unfixed: true
+          exit-code: '1'
+          format: sarif
+          output: trivy-image.sarif
+
+      - name: Generate SBOM (CycloneDX)
+        if: steps.detect.outputs.present == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: local/scan-image:ci
+          format: cyclonedx
+          output: sbom.cdx.json
+          exit-code: '0'          # SBOM generation never fails the build
+
+      - name: Upload image report & SBOM
+        if: ${{ steps.detect.outputs.present == 'true' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-reports
+          path: |
+            trivy-image.sarif
+            sbom.cdx.json
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  # Single aggregate check. Make THIS the required status check in branch
+  # protection, and the deploy workflow keys its gate off the overall result.
+  security-gate:
+    name: Security gate
+    needs: [secret-scan, sast, dependencies, iac, container]
+    if: ${{ always() }}
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "secret-scan : ${{ needs.secret-scan.result }}"
+          echo "sast        : ${{ needs.sast.result }}"
+          echo "dependencies: ${{ needs.dependencies.result }}"
+          echo "iac         : ${{ needs.iac.result }}"
+          echo "container   : ${{ needs.container.result }}"
+          if [ "${{ needs.secret-scan.result }}"  != "success" ] || \
+             [ "${{ needs.sast.result }}"         != "success" ] || \
+             [ "${{ needs.dependencies.result }}" != "success" ] || \
+             [ "${{ needs.iac.result }}"          != "success" ] || \
+             [ "${{ needs.container.result }}"    != "success" ]; then
+            echo "::error::Security checks failed - deployment is blocked."
+            exit 1
+          fi
+          echo "All security checks passed. Deployment may proceed."

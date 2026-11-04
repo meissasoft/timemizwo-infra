@@ -40,7 +40,14 @@ permissions:
   contents: read
 
 jobs:
+  # Security gate. The deploy job declares `needs: security`, so deployment
+  # CANNOT start unless every scanner in security.yml succeeds. The reusable
+  # workflow declares its own (read-only) permissions.
+  security:
+    uses: ./.github/workflows/security.yml
+
   deploy:
+    needs: security
     runs-on: ubuntu-latest
     env:
       COMPONENT: ${{ inputs.component }}
