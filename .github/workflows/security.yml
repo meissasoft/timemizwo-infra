@@ -58,7 +58,7 @@ jobs:
   # -------------------------------------------------------------------------
   secret-scan:
     name: Secret scanning
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -94,7 +94,7 @@ jobs:
   # -------------------------------------------------------------------------
   sast:
     name: Static analysis (SAST)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -139,7 +139,7 @@ jobs:
   # -------------------------------------------------------------------------
   dependencies:
     name: Dependency & license scan
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -183,7 +183,7 @@ jobs:
   # -------------------------------------------------------------------------
   iac:
     name: IaC & config scan
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -236,7 +236,7 @@ jobs:
   # -------------------------------------------------------------------------
   container:
     name: Container image scan
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read
@@ -306,7 +306,7 @@ jobs:
     name: Security gate
     needs: [secret-scan, sast, dependencies, iac, container]
     if: ${{ always() }}
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Evaluate results
