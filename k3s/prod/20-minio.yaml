@@ -1,6 +1,8 @@
 # MinIO (S3) for screenshots + the desktop agent's installers/auto-update feed.
-# Pinned to meissasoft-server: it has the disk (~800 GB free) that screenshots
-# will need; db-cloud only has ~48 GB shared with every app's database.
+# Pinned to production-node-2: a dedicated 100 GiB DigitalOcean block volume
+# (timemizwo-minio-prod) is mounted at /mnt/tmz-minio on that node.
+# The PV/PVC below pre-bind to that path so the StatefulSet VCT doesn't
+# allocate from local-path's default storage directory.
 #
 # Public as s3.timemizwo.com (Caddy -> Traefik -> here). Presigned URLs are
 # SigV4-signed over the Host header, so every hop must keep Host unchanged.
@@ -8,6 +10,50 @@
 # Images are copies (docker save from the old server) of exactly what it ran,
 # RELEASE.2025-09-07T16-13-09Z, mirrored to our GHCR: MinIO no longer
 # publishes images on Docker Hub. Pinned by digest.
+#
+# PV backed by the 100 GiB DO volume mounted at /mnt/tmz-minio on
+# production-node-2. The PVC name matches what the StatefulSet VCT would
+# create (data-timemizwo-minio-0), so the StatefulSet reuses it on first apply
+# instead of requesting dynamic provisioning.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: timemizwo-minio-prod
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["production-node-2"]
+  hostPath:
+    path: /mnt/tmz-minio
+    type: Directory
+  claimRef:
+    name: data-timemizwo-minio-0
+    namespace: timemizwo-prod
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-timemizwo-minio-0
+  namespace: timemizwo-prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: timemizwo-minio-prod
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -33,7 +79,7 @@ spec:
               - matchExpressions:
                   - key: kubernetes.io/hostname
                     operator: In
-                    values: ["meissasoft-server"]
+                    values: ["production-node-2"]
       containers:
         - name: minio
           image: ghcr.io/meissasoft/timemizwo-minio:RELEASE.2025-09-07T16-13-09Z@sha256:a16cad481969d7ddb6fcd2f1c58284af3d1266190b9bedc3ef0801aeb05a93a9
@@ -79,7 +125,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: local-path
+        storageClassName: ""
         resources:
           requests:
             storage: 100Gi
