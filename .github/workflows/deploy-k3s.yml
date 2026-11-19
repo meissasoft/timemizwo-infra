@@ -59,7 +59,7 @@ jobs:
             echo "Invalid sha: must be a hex git SHA"; exit 1
           fi
           case "$ENVIRONMENT" in
-            production) echo "NS=timemizwo-prod" >> "$GITHUB_ENV"; echo "DIR=k3s/prod" >> "$GITHUB_ENV"; echo "CLIENT_TAG=$SHA" >> "$GITHUB_ENV" ;;
+            production) echo "NS=timemizwo-prod" >> "$GITHUB_ENV"; echo "DIR=k3s/prod" >> "$GITHUB_ENV"; echo "CLIENT_TAG=prod-$SHA" >> "$GITHUB_ENV" ;;
             staging) echo "NS=timemizwo-staging" >> "$GITHUB_ENV"; echo "DIR=k3s/staging" >> "$GITHUB_ENV"; echo "CLIENT_TAG=staging-$SHA" >> "$GITHUB_ENV" ;;
             *) echo "Unknown environment"; exit 1 ;;
           esac
@@ -80,7 +80,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_PROD_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_PROD_SECRET }}
-          tags: tag:ci
+          tags: tag:k8s-node
 
       - name: Wait for prod route to settle
         if: env.ENVIRONMENT == 'production'
