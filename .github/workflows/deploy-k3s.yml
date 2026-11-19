@@ -82,6 +82,15 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_PROD_SECRET }}
           tags: tag:ci
 
+      - name: Wait for prod route to settle
+        if: env.ENVIRONMENT == 'production'
+        run: |
+          for i in $(seq 1 10); do
+            tailscale ping -c1 100.72.2.59 && exit 0
+            sleep 3
+          done
+          exit 1
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
 
