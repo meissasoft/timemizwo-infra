@@ -86,7 +86,7 @@ jobs:
         if: env.ENVIRONMENT == 'production'
         run: |
           for i in $(seq 1 10); do
-            tailscale ping -c1 100.72.2.59 && exit 0
+            tailscale ping --c 1 100.72.2.59 && exit 0
             sleep 3
           done
           exit 1
