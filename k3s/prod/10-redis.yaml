@@ -1,4 +1,4 @@
-# Per-app Redis on the always-on db-cloud node. BullMQ queues + the Socket.IO
+# Per-app Redis on production-node-2. BullMQ queues + the Socket.IO
 # redis-adapter live here, so it must never evict keys (noeviction): a full
 # Redis should fail loudly, not silently drop jobs.
 apiVersion: apps/v1
@@ -22,9 +22,9 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: topology.kubernetes.io/zone
+                  - key: kubernetes.io/hostname
                     operator: In
-                    values: ["db-cloud"]
+                    values: ["production-node-2"]
       containers:
         - name: redis
           image: redis:7-alpine
